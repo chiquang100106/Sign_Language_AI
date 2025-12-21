@@ -1,0 +1,10 @@
+# Các thư mục dữ liệu nặng (Tuyệt đối không up)
+data/
+raw_video/
+input_images/
+
+# File hệ thống PyCharm (Không cần up)
+.idea/
+venv/
+__pycache__/
+*.pyc
