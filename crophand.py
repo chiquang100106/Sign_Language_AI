@@ -4,9 +4,9 @@ import numpy as np
 import os
 
 # --- CẤU HÌNH XỬ LÝ HÀNG LOẠT ---
-CLASS_NAME = "A"  # Tên nhãn (Chữ cái) đang xử lý
-INPUT_FOLDER = f"D:\\sign_language\\data\\raw_video\\{CLASS_NAME}"  # Folder chứa video đầu vào
-OUTPUT_FOLDER = f"D:\\sign_language\\data\\input_images\\{CLASS_NAME}"  # Folder lưu ảnh đầu ra
+CLASS_NAME = "Y"  # Tên nhãn (Chữ cái) đang xử lý
+INPUT_FOLDER = f"data/raw_videos/{CLASS_NAME}"
+OUTPUT_FOLDER = f"data/input_images/{CLASS_NAME}"  # Folder lưu ảnh đầu ra
 
 IMG_SIZE = 64  # Kích thước ảnh cho CNN (Khầy khuyên nên dùng 64x64 thay vì 28x28)
 FRAME_SKIP = 10  # Cứ 10 frame thì lấy 1 frame (Tránh data bị trùng lặp)
