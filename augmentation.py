@@ -5,16 +5,16 @@ import math
 from tensorflow.keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img
 
 # --- CẤU HÌNH ---
-CLASS_NAME = "A"
+CLASS_NAME = "H"
 DATA_DIR = f"D:\\sign_language\\data\\input_images\\{CLASS_NAME}"
 AUGMENT_RATIO = 0.3  # Sinh thêm 30%
 
 # --- CẤU HÌNH BIẾN HÌNH TỐI ƯU ---
 datagen = ImageDataGenerator(
     rotation_range=10,
-    width_shift_range=0.1,
-    height_shift_range=0.1,
-    zoom_range=[0.9, 1.1],
+    width_shift_range=0.05,
+    height_shift_range=0.05,
+    zoom_range=[0.95, 1.1],
     brightness_range=[0.9, 1.1],
 
     # --- TỐI ƯU 1: Dùng 'reflect' để tránh bị vệt sọc ở rìa ảnh ---
