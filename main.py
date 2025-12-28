@@ -1,164 +1,232 @@
 import cv2
 import mediapipe as mp
 import numpy as np
+import tensorflow as tf
+# 👇 Hai dòng quan trọng con đang thiếu đây:
+from tensorflow.keras.models import load_model
+from tensorflow.keras.applications.efficientnet import preprocess_input
+import time
+import os
+
+# ==========================================
+# CẤU HÌNH HỆ THỐNG (CONFIG)
+# ==========================================
+class Config:
+
+    MODEL_PATH = r"model_efficientnet_b0.keras"
+
+    LABELS = ['A', 'B', 'C', 'D', 'E', 'G', 'H', 'I', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'X',
+              'Y']
+    IMG_SIZE = 224
+    CONFIDENCE_THRESHOLD = 0.75  # Ngưỡng tự tin để hiển thị màu xanh
+    SMOOTHING_FACTOR = 0.0  # Hệ số làm mượt (0.1 -> 0.9). Càng cao càng mượt nhưng trễ hơn xíu.
+    CAMERA_ID = 0  # ID Camera (thường là 0 hoặc 1)
+    FRAME_WIDTH = 1280  # Độ phân giải HD cho nét
+    FRAME_HEIGHT = 720
 
 
-#Khởi tạo các thành phần của mediapipe
-mp_hands = mp.solutions.hands
-mp_draw = mp.solutions.drawing_utils
-hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.7)
-
-#Tỷ lệ khung hình cho bouding box
-DESIRED_ASPECT_RATIO = 1.0  # tỷ lệ khung hình 1:1
-PADDING = 40 # Padding 40 cho bounding box
-
-#Threshold cho detect chuyển động của tay
-STILLNESS_THRESHOLD = 5
-
-def process_frame(frame):
-    '''
-        Hàm Detect bàn tay
-        :arg frame:
-        :return:
-    '''
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return hands.process(rgb_frame)
-
-def calculate_bounding_box(hand_landmarks, frame_shape):
-    '''
-    Hàm tính bounding box
-    :param hand_landmarks:
-    :param frame_shape:
-    :return:
-    '''
-    h, w, _ = frame_shape
-    x_min, y_min = w, h
-    x_max, y_max = 0, 0
-
-    for lm in hand_landmarks.landmark:
-        x, y = int(lm.x * w), int(lm.y * h)
-        x_min = min(x, x_min)
-        y_min = min(y, y_min)
-        x_max = max(x, x_max)
-        y_max = max(y, y_max)
-
-    # Add padding to the bounding box
-    x_min = max(0, x_min - PADDING)
-    y_min = max(0, y_min - PADDING)
-    x_max = min(w, x_max + PADDING)
-    y_max = min(h, y_max + PADDING)
-
-    return x_min, y_min, x_max, y_max
-
-#Đưa bounding box về dạng hình vuông
-def enforce_aspect_ratio(x_min, y_min, x_max, y_max, frame_shape, desired_aspect_ratio):
-    h, w, _ = frame_shape
-    box_width = x_max - x_min
-    box_height = y_max - y_min
-    current_aspect_ratio = box_height / box_width
-
-    if current_aspect_ratio < desired_aspect_ratio:
-        # Height is too small, adjust the height
-        new_height = int(box_width * desired_aspect_ratio)
-        y_center = (y_min + y_max) // 2
-        y_min = max(0, y_center - new_height // 2)
-        y_max = min(h, y_center + new_height // 2)
-    elif current_aspect_ratio > desired_aspect_ratio:
-        # Width is too small, adjust the width
-        new_width = int(box_height / desired_aspect_ratio)
-        x_center = (x_min + x_max) // 2
-        x_min = max(0, x_center - new_width // 2)
-        x_max = min(w, x_center + new_width // 2)
-
-    return x_min, y_min, x_max, y_max
-
-def draw_bounding_box_and_landmarks(frame, x_min, y_min, x_max, y_max, hand_landmarks):
-    # Draw the bounding box
-    cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-
-    # Draw landmarks on the frame
-    mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-# Function to crop the hand region from the frame
-def crop_hand(frame, x_min, y_min, x_max, y_max):
-    return frame[y_min:y_max, x_min:x_max]
+# Tắt cảnh báo TensorFlow cho sạch màn hình console
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 
-# Function to check if the hand is the right hand
-def is_right_hand(handedness):
-    return handedness.classification[0].label == 'Left'
+# ==========================================
+# MODULE 1: PHÁT HIỆN TAY (HAND DETECTOR)
+# ==========================================
+class HandDetector:
+    def __init__(self):
+        self.mp_hands = mp.solutions.hands
+        # Cấu hình MediaPipe tối ưu cho tốc độ và độ chính xác
+        self.hands = self.mp_hands.Hands(
+            model_complexity=1,  # 1: Cân bằng, 0: Nhanh, 2: Chính xác nhất
+            max_num_hands=1,  # Chỉ bắt 1 tay để tránh nhiễu
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.6
+        )
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+
+    def find_hands(self, frame):
+        """Nhận diện và trả về landmarks + bounding box"""
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self.hands.process(frame_rgb)
+        hands_data = []
+        h, w, c = frame.shape
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                # Tính Bounding Box
+                x_vals = [lm.x * w for lm in hand_landmarks.landmark]
+                y_vals = [lm.y * h for lm in hand_landmarks.landmark]
+
+                pad = 40  # Padding vừa đủ
+                bbox = {
+                    'x_min': max(0, int(min(x_vals)) - pad),
+                    'y_min': max(0, int(min(y_vals)) - pad),
+                    'x_max': min(w, int(max(x_vals)) + pad),
+                    'y_max': min(h, int(max(y_vals)) + pad)
+                }
+
+                hands_data.append({
+                    'landmarks': hand_landmarks,
+                    'bbox': bbox
+                })
+        return hands_data, results
+
+    def draw_styled_landmarks(self, frame, results):
+        """Vẽ xương tay đẹp mắt"""
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                self.mp_drawing.draw_landmarks(
+                    frame,
+                    hand_landmarks,
+                    self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                    self.mp_drawing_styles.get_default_hand_connections_style())
 
 
-# Function to detect if the hand is moving
-def is_hand_moving(current_landmarks, previous_landmarks, threshold, frame_shape):
-    if previous_landmarks is None:
-        return True  # First frame, no previous landmarks to compare
+# ==========================================
+# MODULE 2: PHÂN LOẠI KÝ HIỆU (SIGN CLASSIFIER)
+# ==========================================
+class SignClassifier:
+    def __init__(self, model_path, labels, img_size):
+        print(f"⏳ Đang nạp AI Model từ: {model_path}...")
+        try:
+            self.model = load_model(model_path)
+            print("✅ AI Model đã sẵn sàng!")
+        except Exception as e:
+            print(f"❌ Lỗi nạp Model: {e}")
+            exit()
+        self.labels = labels
+        self.img_size = img_size
+        # Biến để lưu xác suất cũ (cho thuật toán làm mượt)
+        self.prev_probs = None
 
-    h, w, _ = frame_shape
-    total_movement = 0
-    num_landmarks = len(current_landmarks)
+    def preprocess(self, frame, bbox):
+        """Cắt ảnh và giữ nguyên giá trị gốc cho Model tự xử lý"""
+        x_min, y_min = bbox['x_min'], bbox['y_min']
+        x_max, y_max = bbox['x_max'], bbox['y_max']
 
-    for lm_current, lm_previous in zip(current_landmarks, previous_landmarks):
-        x_current, y_current = int(lm_current.x * w), int(lm_current.y * h)
-        x_previous, y_previous = int(lm_previous.x * w), int(lm_previous.y * h)
+        # Kiểm tra cắt ảnh hợp lệ
+        if x_max - x_min <= 0 or y_max - y_min <= 0:
+            return None
 
-        # Calculate the Euclidean distance between the corresponding landmarks
-        distance = np.sqrt((x_current - x_previous) ** 2 + (y_current - y_previous) ** 2)
-        total_movement += distance
+        hand_crop = frame[y_min:y_max, x_min:x_max]
+        if hand_crop.size == 0: return None
 
-    # Average movement per landmark
-    average_movement = total_movement / num_landmarks
+        # 1. Resize về 224x224
+        img = cv2.resize(hand_crop, (self.img_size, self.img_size))
 
-    return average_movement > threshold  # Hand is moving if movement is greater than threshold
+        # 2. Chuyển BGR sang RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-def main():
-    #
-    cap = cv2.VideoCapture(0)
+        # 3. GIỮ NGUYÊN (Không chia 255, không preprocess)
+        # Model EfficientNet con train đã có lớp xử lý bên trong rồi.
+        img_batch = np.expand_dims(img, axis=0)
 
-    previous_hand_landmarks = None
+        return img_batch
 
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    def predict_with_smoothing(self, img_batch):
+        """Dự đoán và áp dụng thuật toán làm mượt (Exponential Moving Average)"""
+        current_probs = self.model.predict(img_batch, verbose=0)[0]
 
-        #Detect tay
-        result = process_frame(frame)
-        if result.multi_hand_landmarks and result.multi_handedness:
-            for hand_landmarks, handedness in zip(result.multi_hand_landmarks, result.multi_handedness):
-                # Detect only the right hand
-                if is_right_hand(handedness):
-                    # Check if the hand is moving
-                    if is_hand_moving(hand_landmarks.landmark,previous_hand_landmarks, STILLNESS_THRESHOLD,
-                                      frame.shape):
-                        # Calculate the bounding box
-                        x_min, y_min, x_max, y_max = calculate_bounding_box(hand_landmarks, frame.shape)
+        if self.prev_probs is None:
+            self.prev_probs = current_probs
+        else:
+            # Công thức làm mượt: Probs mới = alpha * Probs hiện tại + (1-alpha) * Probs cũ
+            self.prev_probs = (Config.SMOOTHING_FACTOR * self.prev_probs +
+                               (1 - Config.SMOOTHING_FACTOR) * current_probs)
 
-                        # Enforce fixed aspect ratio for the bounding box
-                        x_min, y_min, x_max, y_max = enforce_aspect_ratio(
-                            x_min, y_min, x_max, y_max, frame.shape, DESIRED_ASPECT_RATIO
-                        )
+        smoothed_probs = self.prev_probs
+        idx = np.argmax(smoothed_probs)
+        label = self.labels[idx]
+        confidence = smoothed_probs[idx]
+        return label, confidence
 
-                    else:
-                        # Calculate the bounding box
-                        x_min, y_min, x_max, y_max = calculate_bounding_box(hand_landmarks, frame.shape)
 
-                        # Enforce fixed aspect ratio for the bounding box
-                        x_min, y_min, x_max, y_max = enforce_aspect_ratio(
-                            x_min, y_min, x_max, y_max, frame.shape, DESIRED_ASPECT_RATIO
-                        )
-                        # Crop the hand region
-                        hand_crop = crop_hand(frame, x_min, y_min, x_max, y_max)
-                        # Show the cropped hand
-                        # cv2.imshow("Cropped Right Hand", hand_crop)
-                        hand_crop = cv2.resize(hand_crop, (28, 28)) #size input 28x28
+# ==========================================
+# MODULE 3: CHƯƠNG TRÌNH CHÍNH (MAIN APP)
+# ==========================================
+class SignLanguageApp:
+    def __init__(self):
+        self.detector = HandDetector()
+        self.classifier = SignClassifier(Config.MODEL_PATH, Config.LABELS, Config.IMG_SIZE)
+        self.cap = cv2.VideoCapture(Config.CAMERA_ID)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, Config.FRAME_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, Config.FRAME_HEIGHT)
+        self.fps_start_time = 0
 
-                    draw_bounding_box_and_landmarks(frame, x_min, y_min, x_max, y_max, hand_landmarks)
-                    previous_hand_landmarks = hand_landmarks.landmark
-        cv2.imshow('hand detect', frame)
-        if cv2.waitKey(10) & 0xFF == ord('q'):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+    def draw_ui(self, frame, bbox, label, conf, fps):
+        """Vẽ giao diện chuyên nghiệp"""
+        # 1. Vẽ BBox và Nhãn trên tay
+        if bbox:
+            color = (0, 255, 0) if conf > Config.CONFIDENCE_THRESHOLD else (0, 165, 255)
+
+            # Vẽ khung
+            cv2.rectangle(frame, (bbox['x_min'], bbox['y_min']), (bbox['x_max'], bbox['y_max']), color, 2)
+
+            # Vẽ nền chữ (Semi-transparent)
+            label_text = f"{label} ({conf * 100:.0f}%)"
+            (w, h), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
+            cv2.rectangle(frame, (bbox['x_min'], bbox['y_min'] - 35), (bbox['x_min'] + w + 10, bbox['y_min']), color,
+                          -1)
+
+            # Viết chữ
+            cv2.putText(frame, label_text, (bbox['x_min'] + 5, bbox['y_min'] - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+        # 2. Vẽ FPS và thông tin góc màn hình
+        cv2.rectangle(frame, (0, 0), (250, 50), (0, 0, 0), -1)  # Nền đen góc
+        cv2.putText(frame, f"FPS: {int(fps)} | 'Q' to Exit", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+    def run(self):
+        print("🎥 Đang khởi động Camera... Vui lòng chờ!")
+        while self.cap.isOpened():
+            success, frame = self.cap.read()
+            if not success: break
+
+            frame = cv2.flip(frame, 1)  # Lật gương
+            hands_data, results = self.detector.find_hands(frame)
+
+            label = ""
+            conf = 0.0
+            bbox = None
+
+            # Chỉ xử lý nếu phát hiện tay
+            if hands_data:
+                hand = hands_data[0]  # Lấy tay đầu tiên
+                bbox = hand['bbox']
+
+                # Xử lý ảnh
+                img_batch = self.classifier.preprocess(frame, bbox)
+
+                if img_batch is not None:
+                    # Dự đoán với làm mượt
+                    label, conf = self.classifier.predict_with_smoothing(img_batch)
+
+                # Vẽ xương (Tùy chọn, comment dòng dưới nếu muốn tắt xương)
+                #self.detector.draw_styled_landmarks(frame, results)
+
+            # Tính FPS
+            fps_end_time = time.time()
+            time_diff = fps_end_time - self.fps_start_time
+            fps = 1 / time_diff if time_diff > 0 else 0
+            self.fps_start_time = fps_end_time
+
+            # Vẽ giao diện
+            self.draw_ui(frame, bbox, label, conf, fps)
+
+            cv2.imshow('Sign Language AI - Pro Version', frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+        self.cap.release()
+        cv2.destroyAllWindows()
+
+
+# ==========================================
+# CHẠY CHƯƠNG TRÌNH
+# ==========================================
 if __name__ == "__main__":
-    main()
+    app = SignLanguageApp()
+    app.run()
