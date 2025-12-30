@@ -83,5 +83,10 @@ model = load_model('efficientnet_b0_landmark.keras') # Thay đổi tên file mod
 3. Inference: Hình ảnh sau khi cắt được đưa vào mạng Neural (MobileNetV3 hoặc EfficientNet) để phân loại.
 
 4. Output: Hiển thị nhãn ngôn ngữ ký hiệu tương ứng trực tiếp lên màn hình.
+
 🤝 Đóng góp
    - Mọi đóng góp nhằm cải thiện độ chính xác của model hoặc tối ưu hóa code đều được hoan nghênh. Vui lòng mở một Issue hoặc tạo Pull Request.
+
+Tác giả: 
+
+Ngày cập nhật: 31/12/2025
