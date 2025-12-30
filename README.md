@@ -58,7 +58,9 @@ Cài đặt tất cả các phụ thuộc chỉ với một câu lệnh:
 pip install -r requirements.txt
 ```
 (Nếu chưa có file requirements.txt, hãy cài: pip install opencv-python mediapipe scikit-learn)
+
 📖 Cách sử dụng
+
 1. Chuẩn bị dữ liệu (Nếu muốn huấn luyện lại)
 Nếu bạn muốn mở rộng tập dữ liệu hiện có, hãy sử dụng script tăng cường dữ liệu:
 ```
