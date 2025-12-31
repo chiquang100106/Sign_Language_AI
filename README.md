@@ -32,7 +32,8 @@ Hệ thống nhận diện ngôn ngữ ký hiệu thời gian thực sử dụng
 ├── best_20251230_161353.keras # Model tốt nhất được lưu lại sau khi huấn luyện
 └── efficientnet_b0_landmark.keras # Model sử dụng kiến trúc EfficientNet-B0
 ```
-🚀 Hướng dẫn cài đặt
+##🚀 Hướng dẫn cài đặt
+
 Để chạy dự án này trên máy cục bộ, bạn hãy thực hiện theo các bước sau:
 
 1. Clone repository:
@@ -59,7 +60,7 @@ pip install -r requirements.txt
 ```
 (Nếu chưa có file requirements.txt, hãy cài: pip install opencv-python mediapipe scikit-learn)
 
-📖 Cách sử dụng
+##📖 Cách sử dụng
 
 1. Chuẩn bị dữ liệu (Nếu muốn huấn luyện lại)
 Nếu bạn muốn mở rộng tập dữ liệu hiện có, hãy sử dụng script tăng cường dữ liệu:
@@ -86,7 +87,7 @@ model = load_model('efficientnet_b0_landmark.keras') # Thay đổi tên file mod
 
 4. Output: Hiển thị nhãn ngôn ngữ ký hiệu tương ứng trực tiếp lên màn hình.
 
-🤝 Đóng góp
+##🤝 Đóng góp
    - Mọi đóng góp nhằm cải thiện độ chính xác của model hoặc tối ưu hóa code đều được hoan nghênh. Vui lòng mở một Issue hoặc tạo Pull Request.
 
 Tác giả: 
